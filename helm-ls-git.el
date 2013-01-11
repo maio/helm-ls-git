@@ -17,6 +17,7 @@
 
 ;;; Code
 
+(require 'magit)
 (require 'helm-locate)
 (require 'helm-files)
 
@@ -26,38 +27,18 @@
 (defvar helm-ls-git-status-command 'vc-dir)
 
 (defun helm-ls-git-list-files ()
-  (when (and helm-ls-git-log-file
-             (file-exists-p helm-ls-git-log-file))
-    (delete-file helm-ls-git-log-file))
-  (with-output-to-string
-      (with-current-buffer standard-output
-        (apply #'process-file
-               "git"
-               nil (list t helm-ls-git-log-file) nil
-               (list "ls-files" "--full-name" "--"
-                     (or (helm-ls-git-root-dir)
-                         default-directory))))))
+  (with-helm-default-directory (helm-ls-git-root-dir)
+      (magit-git-string "ls-files")))
 
 (defun helm-ls-git-root-dir ()
-  (let ((result
-         (with-output-to-string
-             (with-current-buffer standard-output
-               (process-file "git" nil (list t nil) nil
-                             "rev-parse" "--git-dir")))))
-    (unless (or (string= result "") (not result))
-      (file-name-as-directory
-       (expand-file-name
-        ".." (replace-regexp-in-string "\n" "" result))))))
+  (with-helm-current-buffer
+    (locate-dominating-file default-directory ".git")))
 
 (defun helm-ls-git-not-inside-git-repo ()
   (not (helm-ls-git-root-dir)))
 
 (defun helm-ls-git-transformer (candidates source)
-  (loop with root = (let ((default-directory
-                           (or helm-ls-git-root-directory
-                               (with-helm-current-buffer
-                                 default-directory))))
-                      (helm-ls-git-root-dir))
+  (loop with root = (helm-ls-git-root-dir)
         for i in candidates
         for abs = (expand-file-name i root)
         for disp = (if (and helm-ff-transformer-show-only-basename
@@ -67,19 +48,8 @@
         (cons (propertize disp 'face 'helm-ff-file) abs)))
 
 (defun helm-ls-git-init ()
-  (let ((data (helm-ls-git-list-files)))
-    (when (string= data "")
-      (setq data
-            (if helm-ls-git-log-file
-                (with-current-buffer
-                    (find-file-noselect helm-ls-git-log-file)
-                  (prog1
-                      (buffer-substring-no-properties
-                       (point-min) (point-max))
-                    (kill-buffer)))
-                data)))
-    (helm-init-candidates-in-buffer
-     "*lsgit*" data)))
+  (helm-init-candidates-in-buffer
+   "*lsgit*" (helm-ls-git-list-files)))
 
 (defvar helm-c-source-ls-git
   `((name . "Git files")
@@ -144,11 +114,7 @@
                (list "status" "--porcelain")))))
 
 (defun helm-ls-git-status-transformer (candidates source)
-  (loop with root = (let ((default-directory
-                           (or helm-ls-git-root-directory
-                               (with-helm-current-buffer
-                                 default-directory))))
-                      (helm-ls-git-root-dir))
+  (loop with root = (helm-ls-git-root-dir)
         for i in candidates
         collect
         (cond ((string-match "^\\( M \\)\\(.*\\)" i) ; modified.
@@ -208,7 +174,7 @@
                                                         ".gitignore"
                                                         (helm-ls-git-root-dir)))
                                    (goto-char (point-max))
-                                   (loop with last-bname 
+                                   (loop with last-bname
                                          for f in marked
                                          for bname = (helm-c-basename f)
                                          unless (string= bname last-bname)
